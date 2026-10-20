@@ -1,0 +1,279 @@
+substitutions:
+  max_power: "3680" # In Watt (16 A at 230 V)
+
+esphome:
+  name: ${name}
+  friendly_name: ${friendly_name}
+  name_add_mac_suffix: false
+  project:
+    name: "mvoss96.sonoff-s60tpf"
+    version: "1.0.0"
+  includes:
+    - <nvs.h>
+    - <driver/gpio.h>
+    - <soc/usb_serial_jtag_reg.h>
+  on_boot:
+    # After globals are restored (priority 800), before the meter is read
+    priority: 600
+    then:
+      - lambda: |-
+          // Board variant: the stock firmware reads GPIO6, GPIO10 and GPIO19 with
+          // pull-ups at boot and scales voltage and power by 1.02 unless all are high.
+          // Like stock, detach the USB pads first so GPIO19 (USB D+) reads as a plain GPIO.
+          CLEAR_PERI_REG_MASK(USB_SERIAL_JTAG_CONF0_REG, USB_SERIAL_JTAG_USB_PAD_ENABLE);
+          const gpio_num_t board_id_pins[] = {GPIO_NUM_6, GPIO_NUM_10, GPIO_NUM_19};
+          for (gpio_num_t pin : board_id_pins) {
+            gpio_reset_pin(pin);
+            gpio_set_direction(pin, GPIO_MODE_INPUT);
+            gpio_set_pull_mode(pin, GPIO_PULLUP_ONLY);
+          }
+          delayMicroseconds(100);
+          bool all_high = true;
+          for (gpio_num_t pin : board_id_pins) {
+            if (gpio_get_level(pin) == 0) all_high = false;
+          }
+          id(meter_factor) = all_high ? 1.0f : 1.02f;
+
+          // Factory calibration the stock firmware keeps in NVS: namespace
+          // user_unusual, blob "content" (JSON), field calib_coefficient0 =
+          // "1,1,[9 numbers],[9 numbers]".
+          std::string content;
+          nvs_handle_t handle;
+          if (nvs_open("user_unusual", NVS_READONLY, &handle) == ESP_OK) {
+            size_t length = 0;
+            if (nvs_get_blob(handle, "content", nullptr, &length) == ESP_OK && length > 0) {
+              content.resize(length);
+              if (nvs_get_blob(handle, "content", &content[0], &length) != ESP_OK) content.clear();
+            }
+            nvs_close(handle);
+          }
+          std::vector<double> numbers;
+          const std::string key = "\"calib_coefficient0\":\"";
+          size_t start = content.find(key);
+          if (start != std::string::npos) {
+            start += key.size();
+            size_t end = content.find('"', start);
+            std::string text = content.substr(start, end == std::string::npos ? std::string::npos : end - start);
+            const char *p = text.c_str();
+            while (*p != '\0') {
+              if (*p == ',' || *p == '[' || *p == ']') {
+                p++;
+                continue;
+              }
+              char *next;
+              double value = strtod(p, &next);
+              if (next == p) break;
+              numbers.push_back(value);
+              p = next;
+            }
+          }
+
+          const char *source;
+          if (numbers.size() == 20) {
+            std::copy(numbers.begin() + 2, numbers.end(), id(calibration).begin());
+            id(calibration_saved) = true;
+            source = "stock NVS";
+          } else if (id(calibration_saved)) {
+            source = "saved copy";
+          } else {
+            source = "missing";
+          }
+          id(calibration_status) = std::string(source) + ", factor " + (all_high ? "1.00" : "1.02");
+          ESP_LOGI("s60", "Calibration: %s", id(calibration_status).c_str());
+
+esp32:
+  variant: esp32c3
+  flash_size: 4MB
+  framework:
+    type: esp-idf
+    sdkconfig_options:
+      # The Sonoff updater's header holds at most 7 version characters;
+      # "2026.9.1" does not fit. ESPHome itself does not use this field.
+      CONFIG_APP_PROJECT_VER_FROM_CONFIG: y
+      CONFIG_APP_PROJECT_VER: '"2.0.0"'
+
+# Log on UART0 so GPIO19 (USB D+) can be read as a board ID pin
+logger:
+  hardware_uart: UART0
+
+# Enable Home Assistant API
+api:
+
+# Allow Over-The-Air updates
+ota:
+  - platform: esphome
+    # Allows bootloader and partition table updates over the air when
+    # requested explicitly (esphome upload --bootloader / --partition-table)
+    allow_partition_access: true
+
+wifi:
+  ssid: !secret wifi_ssid
+  password: !secret wifi_password
+  ap: {}
+
+captive_portal:
+
+globals:
+  # Total energy in kWh, counted from the meter's energy pulses
+  - id: total_energy
+    type: float
+    restore_value: true
+    initial_value: "0.0"
+  # Uncalibrated power (W) of the last meter reading; selects the calibration set
+  - id: raw_power
+    type: float
+    initial_value: "0.0"
+  - id: meter_factor
+    type: float
+    initial_value: "1.0"
+  # Two sets of [a, b, c] for current, voltage and power: below 300 W, then
+  # from 300 W on. Saved, so it survives if the stock NVS data is ever lost.
+  - id: calibration
+    type: std::array<double, 18>
+    restore_value: true
+    initial_value: "{0, 1e6, 0, 0, 1e6, 0, 0, 1e6, 0, 0, 1e6, 0, 0, 1e6, 0, 0, 1e6, 0}"
+  - id: calibration_saved
+    type: bool
+    restore_value: true
+    initial_value: "false"
+  - id: calibration_status
+    type: std::string
+    initial_value: '"unknown"'
+
+status_led:
+  pin:
+    number: GPIO5
+    inverted: true
+
+uart:
+  id: cse_uart
+  rx_pin: GPIO7
+  baud_rate: 4800
+  parity: EVEN
+
+binary_sensor:
+  - platform: gpio
+    id: push_button
+    internal: true
+    pin:
+      number: GPIO9
+      inverted: true
+      mode: INPUT_PULLUP
+    filters:
+      - delayed_on: 10ms
+      - delayed_off: 10ms
+    on_press:
+      - switch.toggle: relay
+
+text_sensor:
+  - platform: template
+    name: "Calibration"
+    entity_category: diagnostic
+    lambda: return id(calibration_status);
+    update_interval: 60s
+
+switch:
+  - platform: gpio
+    pin: GPIO4
+    id: relay
+    name: "Relay"
+    restore_mode: RESTORE_DEFAULT_ON
+    icon: mdi:power
+
+sensor:
+  # Same calibration as the stock firmware: coefficients work in mA, mV and mW
+  # (a*x^2/1e7 + b*x/1e6 + c/1e6), which in A, V and W becomes
+  # a*1e-4*x^2 + b/1e6*x + c/1e9. Set 1 applies below 300 W, set 2 above.
+  - platform: cse7766
+    uart_id: cse_uart
+    current:
+      id: current
+      name: "current"
+      accuracy_decimals: 3
+      icon: mdi:current-ac
+      filters:
+        - lambda: |-
+            const auto &c = id(calibration);
+            int i = id(raw_power) < 300.0f ? 0 : 9;
+            return c[i] * 1e-4 * x * x + c[i + 1] / 1e6 * x + c[i + 2] / 1e9;
+        # Publish at most every 5 s, but any change above 5 % right away
+        - or:
+            - throttle: 5s
+            - delta: 5%
+
+    voltage:
+      id: voltage
+      name: "voltage"
+      icon: mdi:flash-outline
+      filters:
+        - lambda: |-
+            const auto &c = id(calibration);
+            int i = (id(raw_power) < 300.0f ? 0 : 9) + 3;
+            x *= id(meter_factor);
+            return c[i] * 1e-4 * x * x + c[i + 1] / 1e6 * x + c[i + 2] / 1e9;
+        # Publish at most every 5 s, but any change above 5 % right away
+        - or:
+            - throttle: 5s
+            - delta: 5%
+
+    # Energy pulses since boot (Wh). Unlike integrating the power reading, the
+    # pulse count stays correct for small loads.
+    energy:
+      id: meter_energy
+      internal: true
+      on_value:
+        - lambda: |-
+            // Add each increase to total_energy, scaled like the power reading
+            static float last = NAN;
+            if (!std::isnan(last) && x > last) {
+              const auto &c = id(calibration);
+              float p = id(raw_power);
+              int i = (p < 300.0f ? 0 : 9) + 6;
+              float scale = id(meter_factor);
+              if (p > 0.0f) scale *= (c[i] * 1e-4 * p * p + c[i + 1] / 1e6 * p + c[i + 2] / 1e9) / p;
+              id(total_energy) += (x - last) * scale / 1000.0f;
+            }
+            last = x;
+
+    power:
+      id: power
+      name: "power"
+      icon: mdi:flash-outline
+      force_update: true
+      filters:
+        - lambda: |-
+            // With the relay off there is no load, so skip waiting for the meter
+            if (!id(relay).state) {
+              id(raw_power) = 0.0f;
+              return 0.0f;
+            }
+            const auto &c = id(calibration);
+            x *= id(meter_factor);
+            id(raw_power) = x;
+            int i = (x < 300.0f ? 0 : 9) + 6;
+            float y = c[i] * 1e-4 * x * x + c[i + 1] / 1e6 * x + c[i + 2] / 1e9;
+            return y < 0.0f ? 0.0f : y;
+        # Publish at most every 5 s, but any change above 5 % right away
+        - or:
+            - throttle: 5s
+            - delta: 5%
+      on_value_range:
+        - above: ${max_power}
+          then:
+            - switch.turn_off: relay
+            - homeassistant.service:
+                service: persistent_notification.create
+                data:
+                  title: Message from ${name}
+                data_template:
+                  message: Switch turned off because power exceeded ${max_power}W
+
+  - platform: template
+    id: energy
+    name: "energy"
+    unit_of_measurement: kWh
+    device_class: energy
+    state_class: total_increasing
+    accuracy_decimals: 3
+    lambda: return id(total_energy);
+    update_interval: 60s
