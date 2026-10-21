@@ -51,4 +51,6 @@ Tested on two S60TPF with Sonoff firmware 1.2.0 and ESPHome 2026.9.1.
 - **Small loads:** before ESPHome 2026.11, loads of a few watts alternate
   between their value and 0 W. Fixed by
   [esphome/esphome#20631](https://github.com/esphome/esphome/pull/20631).
-- **No way back to stock** without a flash backup taken beforehand.
+- **Back to stock:** bootloader, partitions and NVS are untouched, so the
+  Sonoff app image (the same on every plug) flashed with ESPHome OTA should
+  boot stock with its eWeLink pairing. Not tested yet.
