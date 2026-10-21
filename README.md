@@ -41,7 +41,8 @@ Tested on two S60TPF with Sonoff firmware 1.2.0 and ESPHome 2026.9.1.
    replug the plug, which boots Sonoff again. The dump contains your Wi-Fi
    password and the plug's eWeLink keys, so keep it private.
 
-3. Create a device config like `example.yaml` and build it. Use the image in
+3. Copy `sonoff-s60tpf.yaml`, set `name` and `friendly_name`, add a
+   `secrets.yaml` with `wifi_ssid` and `wifi_password`, and build it. Use the image in
    **OTA format** (Device Builder: *Install → Manual download → OTA format*;
    CLI: `.esphome/build/<name>/build/firmware.ota.bin`).
 
@@ -58,7 +59,7 @@ Tested on two S60TPF with Sonoff firmware 1.2.0 and ESPHome 2026.9.1.
 
 ## Notes
 
-- **Calibration:** the package reads `calib_coefficient0` from NVS at boot and
+- **Calibration:** the config reads `calib_coefficient0` from NVS at boot and
   applies it like the stock firmware, including the 1.02 board-variant factor.
   The `Calibration` diagnostic sensor shows the source.
 - **Small loads:** before ESPHome 2026.11, loads of a few watts alternate

@@ -1,4 +1,6 @@
 substitutions:
+  name: smartplug-kitchen
+  friendly_name: SmartPlug Kitchen
   max_power: "3680" # In Watt (16 A at 230 V)
 
 esphome:

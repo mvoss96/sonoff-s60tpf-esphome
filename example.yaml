@@ -1,6 +1,0 @@
-substitutions:
-  name: smartplug-kitchen
-  friendly_name: SmartPlug Kitchen
-
-packages:
-  s60tpf: github://mvoss96/sonoff-s60tpf-esphome/sonoff-s60tpf.yaml@main
