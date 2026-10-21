@@ -41,9 +41,22 @@ Tested on two S60TPF with Sonoff firmware 1.2.0 and ESPHome 2026.9.1.
    replug the plug, which boots Sonoff again. The dump contains your Wi-Fi
    password and the plug's eWeLink keys, so keep it private.
 
-3. Copy `sonoff-s60tpf.yaml`, set `name` and `friendly_name`, add a
-   `secrets.yaml` with `wifi_ssid` and `wifi_password`, and build it. Use the image in
-   **OTA format** (Device Builder: *Install → Manual download → OTA format*;
+3. Create the device config, either way:
+
+   - **Copy** `sonoff-s60tpf.yaml` and set `name` and `friendly_name` in it.
+   - **Reference** it as a package, so later changes here are picked up:
+
+     ```yaml
+     substitutions:
+       name: smartplug-kitchen
+       friendly_name: SmartPlug Kitchen
+
+     packages:
+       s60tpf: github://mvoss96/sonoff-s60tpf-esphome/sonoff-s60tpf.yaml@main
+     ```
+
+   Add a `secrets.yaml` with `wifi_ssid` and `wifi_password` and build it.
+   Use the image in **OTA format** (Device Builder: *Install → Manual download → OTA format*;
    CLI: `.esphome/build/<name>/build/firmware.ota.bin`).
 
 4. Install it:
