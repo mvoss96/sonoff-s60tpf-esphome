@@ -28,11 +28,24 @@ Tested on two S60TPF with Sonoff firmware 1.2.0 and ESPHome 2026.9.1.
    git -C Sonoff-OTA checkout 9a20bf0
    ```
 
-2. Create a device config like `example.yaml` and build it. Use the image in
+2. Back up the plug's flash. This is the only way back to stock later.
+
+   ```sh
+   mkdir -p Sonoff-OTA/captures/flash-readout
+   cp readout/s60-ota-bridge-flash-readout-4.4.2.ota Sonoff-OTA/captures/flash-readout/
+   python Sonoff-OTA/tools/s60_readout.py
+   ```
+
+   It installs a read-only helper firmware, saves the whole flash under
+   `Sonoff-OTA/captures/flash-readout/` and then tells you to unplug and
+   replug the plug, which boots Sonoff again. The dump contains your Wi-Fi
+   password and the plug's eWeLink keys, so keep it private.
+
+3. Create a device config like `example.yaml` and build it. Use the image in
    **OTA format** (Device Builder: *Install → Manual download → OTA format*;
    CLI: `.esphome/build/<name>/build/firmware.ota.bin`).
 
-3. Install it:
+4. Install it:
 
    ```sh
    python send_firmware.py path/to/firmware.ota.bin
@@ -41,7 +54,7 @@ Tested on two S60TPF with Sonoff firmware 1.2.0 and ESPHome 2026.9.1.
    Pick the plug, enter the eWeLink login, type `ESPHOME` to confirm. The plug
    restarts into ESPHome within a minute.
 
-4. Add it in Home Assistant. Later updates are normal ESPHome OTA updates.
+5. Add it in Home Assistant. Later updates are normal ESPHome OTA updates.
 
 ## Notes
 
@@ -52,5 +65,7 @@ Tested on two S60TPF with Sonoff firmware 1.2.0 and ESPHome 2026.9.1.
   between their value and 0 W. Fixed by
   [esphome/esphome#20631](https://github.com/esphome/esphome/pull/20631).
 - **Back to stock:** bootloader, partitions and NVS are untouched, so the
-  Sonoff app image (the same on every plug) flashed with ESPHome OTA should
-  boot stock with its eWeLink pairing. Not tested yet.
+  Sonoff app image from the backup, flashed with ESPHome OTA, should boot
+  stock with its eWeLink pairing. Not tested yet.
+- **License:** MIT, except `readout/*.ota` (GPL-3.0, built from Sonoff-OTA;
+  see `readout/NOTICE.md`).
